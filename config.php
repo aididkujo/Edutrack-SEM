@@ -11,7 +11,8 @@ $password = getenv('DB_PASS') ?: '';
 $database = getenv('DB_NAME') ?: 'edutrack';
 
 // Create connection
-$conn = new mysqli($host, $username, $password, $database, (int)$port);
+//$conn = new mysqli($host, $username, $password, $database, (int)$port);
+$conn = new mysqli("127.0.0.1", "root", "", "edutrack", 3306);
 
 // Set charset
 $conn->set_charset("utf8mb4");
