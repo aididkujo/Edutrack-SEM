@@ -52,7 +52,6 @@ $coursesData = [];
 
 // --- 3. Process Main Table & Summary Data ---
 while($course = $courses->fetch_assoc()) {
-    // Self-healing: Update cache
     update_progress_summary($conn, $userID, $course['courseID']);
 
     // Fetch Summary
@@ -64,6 +63,14 @@ while($course = $courses->fetch_assoc()) {
 
     $avg = $summary ? (float)$summary['total_average'] : 0;
     $att = $summary ? (float)$summary['attendance_rate'] : 0;
+
+    // Fetch Remark
+    $remSql = "SELECT remark FROM student_remarks WHERE studentID = ? AND courseID = ? LIMIT 1";
+    $remStmt = $conn->prepare($remSql);
+    $remStmt->bind_param("ii", $userID, $course['courseID']);
+    $remStmt->execute();
+    $remarkResult = $remStmt->get_result()->fetch_assoc();
+    $remark = $remarkResult ? $remarkResult['remark'] : '-';
 
     // Count Assessments
     $countSql = "SELECT COUNT(*) as count FROM submission s 
@@ -83,7 +90,8 @@ while($course = $courses->fetch_assoc()) {
         'avg' => $avg,
         'att' => $att,
         'status' => $status,
-        'assess_count' => $assessCount
+        'assess_count' => $assessCount,
+        'remark' => $remark // Added this line
     ];
 
     $totalAvg += $avg;
@@ -568,35 +576,31 @@ if (isset($_GET['download']) && $_GET['download'] === 'excel') {
                                 <th>Average Score</th>
                                 <th>Attendance</th>
                                 <th>Status</th>
-                            </tr>
+                                <th>Lecturer Remark</th> </tr>
                         </thead>
+
                         <tbody>
                             <?php foreach ($coursesData as $c): ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($c['id']); ?></td>
                                 <td>
                                     <a href="student_view_course.php?course_id=<?php echo $c['id']; ?>"
-                                        style="color: #2e7d32; font-weight: bold; text-decoration: none;">
-                                        <?php echo htmlspecialchars($c['name']); ?>
+                                    style="color: #2e7d32; font-weight: bold; text-decoration: none;">
+                                    <?php echo htmlspecialchars($c['name']); ?>
                                     </a>
                                 </td>
                                 <td><?php echo htmlspecialchars($c['type']); ?></td>
                                 <td style="text-align: center;"><?php echo (float)$c['avg']; ?></td>
                                 <td><?php echo (float)$c['att']; ?>%</td>
                                 <td>
-                                    <span class="status-btn"
-                                        style="background-color: <?php echo htmlspecialchars($c['status']['color']); ?>;">
+                                    <span class="status-btn" style="background-color: <?php echo htmlspecialchars($c['status']['color']); ?>;">
                                         <?php echo htmlspecialchars($c['status']['label']); ?>
                                     </span>
                                 </td>
+                                <td style="font-size: 12px; color: #555; font-style: italic;">
+                                    <?php echo htmlspecialchars($c['remark']); ?> </td>
                             </tr>
                             <?php endforeach; ?>
-
-                            <?php if(empty($coursesData)): ?>
-                            <tr>
-                                <td colspan="6" style="text-align:center;">No courses found.</td>
-                            </tr>
-                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>

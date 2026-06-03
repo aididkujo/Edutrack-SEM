@@ -662,6 +662,7 @@ $lecturerName = $_SESSION['full_name'] ?? 'Lecturer';
                                 <th>Avg</th>
                                 <th>Att</th>
                                 <th>Status</th>
+                                <th>Remarks</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -679,6 +680,33 @@ $lecturerName = $_SESSION['full_name'] ?? 'Lecturer';
                                 <td><span class="status-badge"
                                         style="background-color: <?php echo $s['status']['color']; ?>"><?php echo $s['status']['label']; ?></span>
                                 </td>
+                                <td id="remark-cell-<?php echo $s['raw_id']; ?>-<?php echo $s['course_id']; ?>">
+                                    <?php
+                                    $rSql = "SELECT remarkID, remark FROM student_remarks WHERE studentID = ? AND courseID = ?";
+                                    $rStmt = $conn->prepare($rSql);
+                                    $rStmt->bind_param("ii", $s['raw_id'], $s['course_id']);
+                                    $rStmt->execute();
+                                    $remarkRow = $rStmt->get_result()->fetch_assoc();
+
+                                    if ($remarkRow): ?>
+                                        <div style="font-size: 11px; margin-bottom: 5px;" id="remark-text-<?php echo $remarkRow['remarkID']; ?>">
+                                            <?php echo htmlspecialchars($remarkRow['remark']); ?>
+                                        </div>
+                                        <!-- REMOVED the <form> and replaced with a button that calls the JS function -->
+                                        <button type="button" 
+                                                onclick="deleteRemark(<?php echo $remarkRow['remarkID']; ?>, <?php echo $s['raw_id']; ?>, <?php echo $s['course_id']; ?>)" 
+                                                style="color:red; background:none; border:none; cursor:pointer; font-size:10px;">
+                                            [Delete]
+                                        </button>
+                                    <?php else: ?>
+                                        <button type="button" 
+                                                onclick="openRemarkModal(<?php echo $s['raw_id']; ?>, <?php echo $s['course_id']; ?>)" 
+                                                style="background:#2196f3; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">
+                                            + Remark
+                                        </button>
+                                    <?php endif; ?>
+                                </td>
+
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -836,6 +864,84 @@ $lecturerName = $_SESSION['full_name'] ?? 'Lecturer';
     };
     <?php endif; ?>
     </script>
+
+
+<div id="remarkModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:white; padding:20px; border-radius:10px; width:400px;">
+        <h3>Add Remark</h3>
+        <input type="hidden" id="remark_studentID">
+        <input type="hidden" id="remark_courseID">
+        <textarea id="remark_text" style="width:100%; height:100px; margin:10px 0;"></textarea>
+        <button onclick="saveRemark()" style="background:#4caf50; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer;">Save Remark</button>
+        <button onclick="document.getElementById('remarkModal').style.display='none'" style="background:#f44336; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer;">Cancel</button>
+    </div>
+</div>
+//added this script for remark modal functionality
+<script>
+function openRemarkModal(sID, cID) {
+    document.getElementById('remark_studentID').value = sID;
+    document.getElementById('remark_courseID').value = cID;
+    document.getElementById('remarkModal').style.display = 'flex';
+}
+
+function saveRemark() {
+    const sID = document.getElementById('remark_studentID').value;
+    const cID = document.getElementById('remark_courseID').value;
+    let remark = document.getElementById('remark_text').value;
+
+    // Validate empty input
+    if (!remark.trim()) {
+        alert("Please enter a remark.");
+        return;
+    }
+
+    fetch('save_remarks.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `studentID=${sID}&courseID=${cID}&remark=${encodeURIComponent(remark)}`
+    })
+    .then(response => response.text())
+    .then(data => {
+        if (data.includes("Error") || data.includes("failed")) {
+            alert('Database Error: ' + data);
+        } else {
+            alert('Remark saved successfully!');
+          
+            window.location.reload();
+        }
+    })
+    .catch(err => {
+        console.error("Fetch Error:", err);
+        alert('Network error: ' + err);
+    });
+}
+
+
+function deleteRemark(remarkID, studentID, courseID) {
+    if (!confirm('Are you sure you want to delete this remark?')) return;
+
+    fetch('delete_remark.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `remarkID=${encodeURIComponent(remarkID)}`
+    })
+    .then(response => response.text())
+    .then(data => {
+  
+        if (data.trim() === "success") {
+            
+            window.location.reload();
+        } else {
+            alert('Failed to delete from database: ' + data);
+        }
+    })
+    .catch(err => {
+        console.error("Delete Error:", err);
+        alert('Network error: ' + err);
+    });
+}
+
+</script>
 </body>
 
 </html>
