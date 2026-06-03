@@ -26,14 +26,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid email or password';
         } elseif ($user['role'] !== $role) {
             $error = 'Invalid role selected';
-        } elseif ($user['status'] !== 'active') {
+        }elseif ($user['status'] !== 'active') {
             if ($user['status'] === 'pending') {
                 $error = 'Your account is pending admin approval';
             } elseif ($user['status'] === 'rejected') {
                 $error = 'Your account has been rejected';
             } elseif ($user['status'] === 'deactivated') {
                 $error = 'Your account has been deactivated';
+            } else {
+                $error = 'Your account is not active';
             }
+            // To stop login process
+            return;
         } elseif (!verify_password($password, $user['password_hash'])) {
             $error = 'Invalid email or password';
         } else {

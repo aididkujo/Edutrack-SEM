@@ -372,6 +372,82 @@ function send_reset_email($email, $token)
     }
 }
 
+// Send approval message through email
+function send_approval_email($email, $name)
+{
+    require_once __DIR__ . '/../vendor/autoload.php';
+    require_once __DIR__ . '/email_config.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        $mail->isSMTP();
+        $mail->SMTPDebug = 0;
+        $mail->Host       = SMTP_HOST;
+        $mail->SMTPAuth   = !empty(SMTP_USERNAME);
+        $mail->Username   = SMTP_USERNAME;
+        $mail->Password   = SMTP_PASSWORD;
+        $mail->SMTPSecure = SMTP_SECURE;
+        $mail->Port       = SMTP_PORT;
+
+        $mail->setFrom(MAIL_FROM_EMAIL, MAIL_FROM_NAME);
+        $mail->addAddress($email);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Account Approved - EduTrack';
+
+        $mail->Body = "
+            <h2>Welcome {$name}</h2>
+            <p>Your account has been approved.</p>
+        ";
+
+        $mail->send();
+        return true;
+
+    } catch (Exception $e) {
+        error_log($mail->ErrorInfo);
+        return false;
+    }
+}
+
+// Send rejection through email
+function send_rejection_email($email, $name)
+{
+    require_once __DIR__ . '/../vendor/autoload.php';
+    require_once __DIR__ . '/email_config.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+
+    try {
+        $mail->isSMTP();
+        $mail->SMTPDebug = 0;
+        $mail->Host       = SMTP_HOST;
+        $mail->SMTPAuth   = !empty(SMTP_USERNAME);
+        $mail->Username   = SMTP_USERNAME;
+        $mail->Password   = SMTP_PASSWORD;
+        $mail->SMTPSecure = SMTP_SECURE;
+        $mail->Port       = SMTP_PORT;
+
+        $mail->setFrom(MAIL_FROM_EMAIL, MAIL_FROM_NAME);
+        $mail->addAddress($email);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Account Rejected - EduTrack';
+
+        $mail->Body = "
+            <h2>Hello {$name}</h2>
+            <p>Unfortunately your account was not approved.</p>
+        ";
+
+        $mail->send();
+        return true;
+
+    } catch (Exception $e) {
+        error_log($mail->ErrorInfo);
+        return false;
+    }
+}
+
 /**
  * Create password reset token
  */

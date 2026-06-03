@@ -28,6 +28,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle approve user
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'approve') {
+
+    $userID = intval($_POST['userID']);
+
+    $stmt = $conn->prepare("SELECT email, full_name FROM user WHERE userID = ?");
+    $stmt->bind_param("i", $userID);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $userData = $result->fetch_assoc();
+
+    $stmt = $conn->prepare("
+        UPDATE user 
+        SET status = 'active', approved_at = NOW()
+        WHERE userID = ?
+    ");
+    $stmt->bind_param("i", $userID);
+
+    if ($stmt->execute()) {
+        send_approval_email($userData['email'], $userData['full_name']);
+        $success = "User approved successfully";
+    } else {
+        $error = "Failed to approve user";
+    }
+}
+
+// Handle reject user
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reject') {
+
+    $userID = intval($_POST['userID']);
+
+    $stmt = $conn->prepare("SELECT email, full_name FROM user WHERE userID = ?");
+    $stmt->bind_param("i", $userID);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $userData = $result->fetch_assoc();
+
+    $stmt = $conn->prepare("
+        UPDATE user 
+        SET status = 'rejected'
+        WHERE userID = ?
+    ");
+    $stmt->bind_param("i", $userID);
+
+    if ($stmt->execute()) {
+        send_rejection_email($userData['email'], $userData['full_name']);
+        $success = "User rejected successfully";
+    } else {
+        $error = "Failed to reject user";
+    }
+}
+
 // Get all users
 $all_users = get_all_users($conn);
 ?>
@@ -199,8 +251,22 @@ $all_users = get_all_users($conn);
                                     <div class="action-buttons">
                                         <a href="view_user.php?id=<?php echo $user['userID']; ?>" class="btn btn-view">View</a>
                                         <a href="edit_user.php?id=<?php echo $user['userID']; ?>" class="btn btn-edit">Edit</a>
+                                        <!-- APPROVE BUTTON -->
+                                        <?php if ($user['status'] === 'pending'): ?>
+                                            <form method="POST" style="display:inline;">
+                                                <input type="hidden" name="userID" value="<?php echo $user['userID']; ?>">
+                                                <input type="hidden" name="action" value="approve">
+                                                <button type="submit" class="btn btn-view">Approve</button>
+                                            </form>
+                                            <form method="POST" style="display:inline;">
+                                                <input type="hidden" name="userID" value="<?php echo $user['userID']; ?>">
+                                                <input type="hidden" name="action" value="reject">
+                                                <button type="submit" class="btn btn-delete">Reject</button>
+                                            </form>
+                                        <?php endif; ?>
+                                        <!-- DELETE -->
                                         <?php if ($user['userID'] !== $_SESSION['userID']): ?>
-                                            <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this user?')">
+                                            <form method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this user?')">
                                                 <input type="hidden" name="userID" value="<?php echo $user['userID']; ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <button type="submit" class="btn btn-delete">Delete</button>
