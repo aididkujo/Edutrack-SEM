@@ -27,6 +27,7 @@ $chk->bind_param("ii", $userID, $courseID);
 $chk->execute();
 $enrolled = $chk->get_result()->fetch_row();
 $chk->close();
+
 if (!$enrolled) {
   header("Location: student_courses.php");
   exit;
@@ -38,6 +39,7 @@ $cstmt->bind_param("i", $courseID);
 $cstmt->execute();
 $crow = $cstmt->get_result()->fetch_assoc();
 $cstmt->close();
+
 $courseName = $crow ? $crow['courseName'] : "Course";
 
 $message = "";
@@ -47,15 +49,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assessmentID'])) {
   $assessmentID = (int)$_POST['assessmentID'];
   $submissionText = isset($_POST['submissionText']) ? trim($_POST['submissionText']) : "";
 
-  // Verify assessment belongs to this course and is Course Work
-  $v = $conn->prepare("SELECT 1 FROM assessment WHERE assessmentID = ? AND courseID = ? AND type = 'Course Work' LIMIT 1");
+  /*
+    UPDATED VALIDATION:
+    Added AND isVisible = 1.
+    This prevents students from submitting hidden coursework.
+  */
+  $v = $conn->prepare("
+    SELECT 1 
+    FROM assessment 
+    WHERE assessmentID = ? 
+      AND courseID = ? 
+      AND type = 'Course Work'
+      AND isVisible = 1
+    LIMIT 1
+  ");
   $v->bind_param("ii", $assessmentID, $courseID);
   $v->execute();
   $validAssessment = $v->get_result()->fetch_row();
   $v->close();
 
   if (!$validAssessment) {
-    $message = show_error("Invalid assessment for this course.");
+    $message = show_error("Invalid assessment for this course or course work is currently hidden.");
   } else {
     // Prepare upload (optional)
     $newFilePath = null;
@@ -69,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assessmentID'])) {
           $message = show_error("Invalid file type. Allowed: pdf, doc, docx, zip, png, jpg, jpeg.");
         } else {
           $dir = "uploads/submissions";
+
           if (!is_dir($dir)) {
             @mkdir($dir, 0777, true);
           }
@@ -88,8 +103,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assessmentID'])) {
     }
 
     if ($message === "") {
-      // Find latest submission (if exists)
-      $s = $conn->prepare("SELECT submissionID, filePath FROM submission WHERE assessmentID = ? AND userID = ? ORDER BY submissionID DESC LIMIT 1");
+      // Find latest submission if exists
+      $s = $conn->prepare("
+        SELECT submissionID, filePath 
+        FROM submission 
+        WHERE assessmentID = ? AND userID = ? 
+        ORDER BY submissionID DESC 
+        LIMIT 1
+      ");
       $s->bind_param("ii", $assessmentID, $userID);
       $s->execute();
       $existing = $s->get_result()->fetch_assoc();
@@ -97,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assessmentID'])) {
 
       if ($existing) {
         $finalPath = $existing['filePath'];
+
         if ($newFilePath !== null) {
           $finalPath = $newFilePath;
         }
@@ -114,25 +136,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assessmentID'])) {
         $ok = $u->execute();
         $u->close();
 
-        $message = $ok ? show_success("Course work submitted successfully.") : show_error("Submission update failed.");
+        $message = $ok
+          ? show_success("Course work submitted successfully.")
+          : show_error("Submission update failed.");
       } else {
         $finalPath = ($newFilePath !== null) ? $newFilePath : null;
 
         $ins = $conn->prepare("
-          INSERT INTO submission (submitDate, filePath, submissionText, submittedAt, grade, assessmentID, userID)
+          INSERT INTO submission 
+          (submitDate, filePath, submissionText, submittedAt, grade, assessmentID, userID)
           VALUES (CURDATE(), ?, ?, NOW(), 0.00, ?, ?)
         ");
         $ins->bind_param("ssii", $finalPath, $submissionText, $assessmentID, $userID);
         $ok = $ins->execute();
         $ins->close();
 
-        $message = $ok ? show_success("Course work submitted successfully.") : show_error("Submission failed.");
+        $message = $ok
+          ? show_success("Course work submitted successfully.")
+          : show_error("Submission failed.");
       }
     }
   }
 }
 
-// List assessments + latest submission per assessment
+/*
+  UPDATED LIST QUERY:
+  Added AND a.isVisible = 1.
+  This ensures students only see coursework that lecturer has set as visible.
+*/
 $sql = "
   SELECT
     a.assessmentID,
@@ -149,17 +180,22 @@ $sql = "
     ON s.submissionID = (
       SELECT MAX(s2.submissionID)
       FROM submission s2
-      WHERE s2.assessmentID = a.assessmentID AND s2.userID = ?
+      WHERE s2.assessmentID = a.assessmentID 
+        AND s2.userID = ?
     )
-  WHERE a.courseID = ? AND a.type = 'Course Work'
+  WHERE a.courseID = ? 
+    AND a.type = 'Course Work'
+    AND a.isVisible = 1
   ORDER BY a.dueDate ASC, a.assessmentID ASC
 ";
+
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("ii", $userID, $courseID);
 $stmt->execute();
 $assessments = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -168,8 +204,10 @@ $stmt->close();
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+
   <title>EduTrack - Course Work</title>
   <link rel="stylesheet" href="style.css">
+
   <style>
     .wrap {
       padding: 22px;
@@ -240,6 +278,11 @@ $stmt->close();
       opacity: 0.9;
       transform: scale(1.01);
     }
+
+    .muted {
+      color: #6b7280;
+      font-size: 14px;
+    }
   </style>
 </head>
 
@@ -252,13 +295,17 @@ $stmt->close();
         <span>Smart Tracking for Smarter Learning</span>
       </div>
     </div>
+
     <div class="user-info">
       <?php if (!empty($user['profile_picture']) && file_exists($user['profile_picture'])): ?>
         <img src="<?php echo htmlspecialchars($user['profile_picture']); ?>" class="profile-icon" alt="Profile">
       <?php else: ?>
         <img src="assets/profile.png" class="profile-icon" alt="Profile">
       <?php endif; ?>
-      <span class="user-name"><?php echo htmlspecialchars($user['full_name']); ?></span>
+
+      <span class="user-name">
+        <?php echo htmlspecialchars($user['full_name']); ?>
+      </span>
     </div>
   </div>
 
@@ -271,7 +318,10 @@ $stmt->close();
         <li><a href="lectevaluationlist.php">Evaluation</a></li>
         <li><a href="profile.php">My Profile</a></li>
       </ul>
-      <button class="logout-btn" onclick="window.location.href='logout.php'">Log Out</button>
+
+      <button class="logout-btn" onclick="window.location.href='logout.php'">
+        Log Out
+      </button>
     </div>
 
     <div class="main-content">
@@ -280,12 +330,15 @@ $stmt->close();
       </div>
 
       <div class="wrap">
-        <div><strong>Course:</strong> <?php echo htmlspecialchars($courseName); ?></div>
+        <div>
+          <strong>Course:</strong>
+          <?php echo htmlspecialchars($courseName); ?>
+        </div>
 
         <?php echo $message; ?>
 
         <?php if (empty($assessments)) : ?>
-          <p>No course work assessments found for this course yet.</p>
+          <p class="muted">No visible course work assessments found for this course yet.</p>
         <?php else : ?>
           <table>
             <thead>
@@ -297,52 +350,79 @@ $stmt->close();
                 <th>Grade</th>
               </tr>
             </thead>
+
             <tbody>
               <?php foreach ($assessments as $a): ?>
                 <?php
                 $submitted = !empty($a['submittedAt']) || !empty($a['filePath']) || !empty($a['submissionText']);
                 ?>
+
                 <tr>
                   <td><?php echo htmlspecialchars($a['tittle']); ?></td>
                   <td><?php echo htmlspecialchars($a['createdDate']); ?></td>
                   <td><?php echo htmlspecialchars($a['dueDate']); ?></td>
+
                   <td>
                     <div class="status">
                       <?php echo $submitted ? "Submitted" : "Not Submitted"; ?>
                     </div>
 
                     <?php if (!empty($a['submittedAt'])): ?>
-                      <div>Submitted At: <?php echo htmlspecialchars($a['submittedAt']); ?></div>
+                      <div>
+                        Submitted At:
+                        <?php echo htmlspecialchars($a['submittedAt']); ?>
+                      </div>
                     <?php endif; ?>
 
                     <?php if (!empty($a['filePath'])): ?>
-                      <div>File: <a href="<?php echo htmlspecialchars($a['filePath']); ?>" target="_blank" rel="noopener">Open</a></div>
+                      <div>
+                        File:
+                        <a href="<?php echo htmlspecialchars($a['filePath']); ?>" target="_blank" rel="noopener">
+                          Open
+                        </a>
+                      </div>
                     <?php endif; ?>
 
                     <div class="formbox">
                       <form method="POST" enctype="multipart/form-data">
                         <input type="hidden" name="assessmentID" value="<?php echo (int)$a['assessmentID']; ?>">
 
-                        <label><strong>Submission Text (optional)</strong></label>
+                        <label>
+                          <strong>Submission Text (optional)</strong>
+                        </label>
+
                         <textarea name="submissionText" placeholder="Enter submission text (optional)"><?php
-                                                                                                        echo htmlspecialchars($a['submissionText'] ?? "");
-                                                                                                        ?></textarea>
+                          echo htmlspecialchars($a['submissionText'] ?? "");
+                        ?></textarea>
 
-                        <label><strong>Upload File (optional)</strong></label>
-                        <input type="file" name="submissionFile" accept=".pdf,.doc,.docx,.zip,.png,.jpg,.jpeg">
+                        <label>
+                          <strong>Upload File (optional)</strong>
+                        </label>
 
-                        <button class="btn" type="submit"><?php echo $submitted ? "Resubmit" : "Submit"; ?></button>
+                        <input
+                          type="file"
+                          name="submissionFile"
+                          accept=".pdf,.doc,.docx,.zip,.png,.jpg,.jpeg">
+
+                        <button class="btn" type="submit">
+                          <?php echo $submitted ? "Resubmit" : "Submit"; ?>
+                        </button>
                       </form>
                     </div>
                   </td>
-                  <td><?php echo htmlspecialchars(number_format((float)$a['grade'], 2)); ?></td>
+
+                  <td>
+                    <?php echo htmlspecialchars(number_format((float)$a['grade'], 2)); ?>
+                  </td>
                 </tr>
               <?php endforeach; ?>
             </tbody>
           </table>
         <?php endif; ?>
 
-        <a class="back" href="student_subject.php?courseID=<?php echo $courseID; ?>">Back to Subject</a>
+        <a class="back" href="student_subject.php?courseID=<?php echo (int)$courseID; ?>">
+          Back to Subject
+        </a>
       </div>
     </div>
   </div>
