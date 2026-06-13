@@ -29,6 +29,7 @@ if ($courseID > 0) {
     $stmt->close();
   }
 }
+
 if (!$course) {
   $error = 'Course not found or no access';
 }
@@ -59,17 +60,21 @@ function quiz_owned(mysqli $conn, int $assessmentID, int $courseID, int $lecture
       AND c.userID = ?
     LIMIT 1
   ");
+
   if (!$chk) return false;
+
   $chk->bind_param("iii", $assessmentID, $courseID, $lecturerID);
   $chk->execute();
   $owned = $chk->get_result()->fetch_assoc();
   $chk->close();
+
   return (bool)$owned;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
   $action = $_POST['action'] ?? '';
 
+  // CREATE QUIZ
   if ($action === 'create_quiz') {
     $title = trim($_POST['tittle'] ?? '');
     $openAtInput  = trim($_POST['openAt'] ?? '');
@@ -92,18 +97,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
         $type = 'Quiz';
         $createdDate = date('Y-m-d');
         $dueDate = date('Y-m-d', strtotime($closeAt));
+        $isVisible = 1;
 
         $stmt = $conn->prepare("
-          INSERT INTO assessment (tittle, type, createdDate, openAt, closeAt, durationMinutes, dueDate, courseID)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO assessment 
+          (tittle, type, createdDate, openAt, closeAt, durationMinutes, dueDate, courseID, isVisible)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
+
         if ($stmt) {
-          $stmt->bind_param("sssssisi", $title, $type, $createdDate, $openAt, $closeAt, $duration, $dueDate, $courseID);
+          $stmt->bind_param(
+            "sssssisii",
+            $title,
+            $type,
+            $createdDate,
+            $openAt,
+            $closeAt,
+            $duration,
+            $dueDate,
+            $courseID,
+            $isVisible
+          );
+
           if ($stmt->execute()) {
             $success = 'Quiz created';
           } else {
             $error = 'Failed to create quiz';
           }
+
           $stmt->close();
         } else {
           $error = 'Database error when creating quiz';
@@ -112,6 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
     }
   }
 
+  // UPDATE QUIZ AVAILABILITY
   if ($action === 'update_availability') {
     $assessmentID = (int)($_POST['assessmentID'] ?? 0);
     $openAtInput  = trim($_POST['openAt'] ?? '');
@@ -138,15 +160,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
         $stmt = $conn->prepare("
           UPDATE assessment
           SET openAt = ?, closeAt = ?, durationMinutes = ?, dueDate = ?
-          WHERE assessmentID = ? AND courseID = ? AND type = 'Quiz'
+          WHERE assessmentID = ? 
+            AND courseID = ? 
+            AND type = 'Quiz'
         ");
+
         if ($stmt) {
           $stmt->bind_param("ssisii", $openAt, $closeAt, $duration, $dueDate, $assessmentID, $courseID);
+
           if ($stmt->execute()) {
             $success = 'Availability updated';
           } else {
             $error = 'Failed to update availability';
           }
+
           $stmt->close();
         } else {
           $error = 'Database error when updating availability';
@@ -155,6 +182,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
     }
   }
 
+  // TOGGLE QUIZ VISIBILITY
+  if ($action === 'toggle_visibility') {
+    $assessmentID = (int)($_POST['assessmentID'] ?? 0);
+    $isVisible = (int)($_POST['isVisible'] ?? -1);
+
+    if ($assessmentID <= 0) {
+      $error = 'Invalid quiz';
+    } elseif ($isVisible !== 0 && $isVisible !== 1) {
+      $error = 'Invalid visibility status';
+    } elseif (!quiz_owned($conn, $assessmentID, $courseID, $lecturerID)) {
+      $error = 'Quiz not found or no access';
+    } else {
+      $stmt = $conn->prepare("
+        UPDATE assessment
+        SET isVisible = ?
+        WHERE assessmentID = ?
+          AND courseID = ?
+          AND type = 'Quiz'
+      ");
+
+      if ($stmt) {
+        $stmt->bind_param("iii", $isVisible, $assessmentID, $courseID);
+
+        if ($stmt->execute()) {
+          $success = $isVisible === 1
+            ? 'Quiz is now visible to students'
+            : 'Quiz is now hidden from students';
+        } else {
+          $error = 'Failed to update quiz visibility';
+        }
+
+        $stmt->close();
+      } else {
+        $error = 'Database error when updating visibility';
+      }
+    }
+  }
+
+  // DELETE QUIZ
   if ($action === 'delete_quiz') {
     $assessmentID = (int)($_POST['assessmentID'] ?? 0);
 
@@ -164,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
       $error = 'Quiz not found or no access';
     } else {
       $conn->begin_transaction();
+
       try {
         $d1 = $conn->prepare("
           DELETE qa
@@ -171,6 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
           JOIN quiz_attempt atp ON atp.attemptID = qa.attemptID
           WHERE atp.assessmentID = ?
         ");
+
         if ($d1) {
           $d1->bind_param("i", $assessmentID);
           $d1->execute();
@@ -190,6 +258,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
           JOIN quiz_question qq ON qq.questionID = qo.questionID
           WHERE qq.assessmentID = ?
         ");
+
         if ($d3) {
           $d3->bind_param("i", $assessmentID);
           $d3->execute();
@@ -226,23 +295,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $course) {
 }
 
 $quizzes = [];
+
 if ($course) {
   $sql = "
-    SELECT a.assessmentID, a.tittle, a.createdDate, a.dueDate, a.openAt, a.closeAt, a.durationMinutes,
-           (SELECT COUNT(*) FROM quiz_question q WHERE q.assessmentID = a.assessmentID) AS questionCount,
-           (SELECT COUNT(*) FROM quiz_attempt qa WHERE qa.assessmentID = a.assessmentID AND qa.status IN ('submitted','graded')) AS submittedCount
+    SELECT 
+      a.assessmentID, 
+      a.tittle, 
+      a.createdDate, 
+      a.dueDate, 
+      a.openAt, 
+      a.closeAt, 
+      a.durationMinutes,
+      a.isVisible,
+      (SELECT COUNT(*) 
+       FROM quiz_question q 
+       WHERE q.assessmentID = a.assessmentID) AS questionCount,
+      (SELECT COUNT(*) 
+       FROM quiz_attempt qa 
+       WHERE qa.assessmentID = a.assessmentID 
+       AND qa.status IN ('submitted','graded')) AS submittedCount
     FROM assessment a
-    WHERE a.courseID = ? AND a.type = 'Quiz'
+    WHERE a.courseID = ? 
+      AND a.type = 'Quiz'
     ORDER BY a.assessmentID DESC
   ";
+
   $stmt = $conn->prepare($sql);
+
   if ($stmt) {
     $stmt->bind_param("i", $courseID);
     $stmt->execute();
     $res = $stmt->get_result();
+
     while ($row = $res->fetch_assoc()) {
       $quizzes[] = $row;
     }
+
     $stmt->close();
   } else {
     $error = $error ?: 'Quiz tables not ready';
@@ -255,6 +343,7 @@ function to_dt_local($sqlDt)
   return date('Y-m-d\TH:i', strtotime($sqlDt));
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -265,6 +354,7 @@ function to_dt_local($sqlDt)
   <meta http-equiv="Expires" content="0">
   <title>EduTrack Lecturer Quiz</title>
   <link rel="stylesheet" href="style.css">
+
   <style>
     .wrap {
       padding: 20px;
@@ -348,6 +438,16 @@ function to_dt_local($sqlDt)
       border: 1px solid rgba(0, 0, 0, 0.12);
     }
 
+    .btnShow {
+      background: #15803d;
+      color: #fff;
+    }
+
+    .btnHide {
+      background: #ca8a04;
+      color: #fff;
+    }
+
     .list {
       max-width: 980px;
       margin: 16px auto 0 auto;
@@ -393,6 +493,16 @@ function to_dt_local($sqlDt)
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.75);
       color: #111827;
+    }
+
+    .visibility-visible {
+      background: #dcfce7;
+      color: #14532d;
+    }
+
+    .visibility-hidden {
+      background: #fee2e2;
+      color: #7f1d1d;
     }
 
     .btnLink {
@@ -444,12 +554,14 @@ function to_dt_local($sqlDt)
         <span>Smart Tracking for Smarter Learning</span>
       </div>
     </div>
+
     <div class="user-info">
       <?php if (!empty($user['profile_picture']) && file_exists($user['profile_picture'])): ?>
         <img src="<?php echo htmlspecialchars($user['profile_picture']); ?>" class="profile-icon" alt="Profile">
       <?php else: ?>
         <img src="assets/profile.png" class="profile-icon" alt="Profile">
       <?php endif; ?>
+
       <span class="user-name"><?php echo htmlspecialchars($user['full_name']); ?></span>
     </div>
   </div>
@@ -463,6 +575,7 @@ function to_dt_local($sqlDt)
         <li><a href="studevaluationlist.php">Evaluation</a></li>
         <li><a href="profile.php">My Profile</a></li>
       </ul>
+
       <button class="logout-btn" onclick="window.location.href='logout.php'">Log Out</button>
     </div>
 
@@ -470,10 +583,17 @@ function to_dt_local($sqlDt)
       <div class="topbar">
         <h2><?php echo $course ? htmlspecialchars($course['courseName']) : 'Quiz'; ?></h2>
       </div>
+
       <a class="btnLink" href="lecturer_subject.php?courseID=<?php echo (int)$courseID; ?>">Back</a>
+
       <div class="wrap">
-        <?php if ($error !== ''): ?><div class="msg error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
-        <?php if ($success !== ''): ?><div class="msg success"><?php echo htmlspecialchars($success); ?></div><?php endif; ?>
+        <?php if ($error !== ''): ?>
+          <div class="msg error"><?php echo htmlspecialchars($error); ?></div>
+        <?php endif; ?>
+
+        <?php if ($success !== ''): ?>
+          <div class="msg success"><?php echo htmlspecialchars($success); ?></div>
+        <?php endif; ?>
 
         <?php if ($course): ?>
           <div class="card">
@@ -508,7 +628,9 @@ function to_dt_local($sqlDt)
               </div>
 
               <div class="hint">
-                Opens at and closes at define when students can start the quiz. Duration is how long each student has after starting.
+                Opens at and closes at define when students can start the quiz.
+                Duration is how long each student has after starting.
+                New quizzes are visible to students by default.
               </div>
             </form>
           </div>
@@ -520,18 +642,42 @@ function to_dt_local($sqlDt)
               <?php foreach ($quizzes as $q): ?>
                 <?php
                 $aid = (int)$q['assessmentID'];
-                $openText  = $q['openAt']  ? date('Y-m-d H:i', strtotime($q['openAt']))  : 'Not set';
-                $closeText = $q['closeAt'] ? date('Y-m-d H:i', strtotime($q['closeAt'])) : 'Not set';
+
+                $openText  = $q['openAt']
+                  ? date('Y-m-d H:i', strtotime($q['openAt']))
+                  : 'Not set';
+
+                $closeText = $q['closeAt']
+                  ? date('Y-m-d H:i', strtotime($q['closeAt']))
+                  : 'Not set';
+
                 $dur = (int)($q['durationMinutes'] ?? 0);
                 $durText = $dur > 0 ? ($dur . ' min') : 'Not set';
+
+                $isVisible = (int)($q['isVisible'] ?? 1);
+                $visibilityText = $isVisible === 1 ? 'Visible to Students' : 'Hidden from Students';
+                $visibilityClass = $isVisible === 1 ? 'visibility-visible' : 'visibility-hidden';
+                $nextVisibility = $isVisible === 1 ? 0 : 1;
+                $visibilityButtonText = $isVisible === 1 ? 'Hide from Students' : 'Show to Students';
+                $visibilityButtonClass = $isVisible === 1 ? 'btnHide' : 'btnShow';
                 ?>
+
                 <div class="item" id="quiz_<?php echo $aid; ?>">
                   <div style="flex:1;min-width:280px;">
                     <div class="title"><?php echo htmlspecialchars($q['tittle']); ?></div>
+
                     <div class="meta">
                       <div><b>Opens:</b> <?php echo htmlspecialchars($openText); ?></div>
                       <div><b>Closes:</b> <?php echo htmlspecialchars($closeText); ?></div>
                       <div><b>Duration:</b> <?php echo htmlspecialchars($durText); ?></div>
+
+                      <div>
+                        <b>Visibility:</b>
+                        <span class="pill <?php echo $visibilityClass; ?>">
+                          <?php echo htmlspecialchars($visibilityText); ?>
+                        </span>
+                      </div>
+
                       <div>
                         <b>Questions:</b> <?php echo (int)$q['questionCount']; ?>
                         &nbsp;|&nbsp;
@@ -547,16 +693,33 @@ function to_dt_local($sqlDt)
                         <div class="editGrid">
                           <div class="field" style="margin:0;">
                             <label>Opens at</label>
-                            <input type="datetime-local" name="openAt" value="<?php echo htmlspecialchars(to_dt_local($q['openAt'])); ?>" required>
+                            <input
+                              type="datetime-local"
+                              name="openAt"
+                              value="<?php echo htmlspecialchars(to_dt_local($q['openAt'])); ?>"
+                              required>
                           </div>
+
                           <div class="field" style="margin:0;">
                             <label>Closes at</label>
-                            <input type="datetime-local" name="closeAt" value="<?php echo htmlspecialchars(to_dt_local($q['closeAt'])); ?>" required>
+                            <input
+                              type="datetime-local"
+                              name="closeAt"
+                              value="<?php echo htmlspecialchars(to_dt_local($q['closeAt'])); ?>"
+                              required>
                           </div>
+
                           <div class="field" style="margin:0;">
                             <label>Duration (minutes)</label>
-                            <input type="number" name="durationMinutes" min="5" max="300" value="<?php echo (int)($q['durationMinutes'] ?? 30); ?>" required>
+                            <input
+                              type="number"
+                              name="durationMinutes"
+                              min="5"
+                              max="300"
+                              value="<?php echo (int)($q['durationMinutes'] ?? 30); ?>"
+                              required>
                           </div>
+
                           <div class="field" style="margin:0;">
                             <label>&nbsp;</label>
                             <button class="btn" type="submit">Save</button>
@@ -568,16 +731,38 @@ function to_dt_local($sqlDt)
 
                   <div class="right-actions">
                     <span class="pill">Quiz</span>
-                    <a class="btnLink" href="lecturer_quiz_builder.php?assessmentID=<?php echo $aid; ?>">Edit Questions</a>
-                    <a class="btnLink" href="lecturer_quiz_grade.php?assessmentID=<?php echo $aid; ?>">Grade</a>
+
+                    <a class="btnLink" href="lecturer_quiz_builder.php?assessmentID=<?php echo $aid; ?>">
+                      Edit Questions
+                    </a>
+
+                    <a class="btnLink" href="lecturer_quiz_grade.php?assessmentID=<?php echo $aid; ?>">
+                      Grade
+                    </a>
 
                     <button class="btn btnSoft" type="button" onclick="toggleEdit(<?php echo $aid; ?>)">
                       Modify Availability
                     </button>
 
-                    <form method="POST" action="" style="margin:0;" onsubmit="return confirm('Delete this quiz and all related data?');">
+                    <form method="POST" action="" style="margin:0;">
+                      <input type="hidden" name="action" value="toggle_visibility">
+                      <input type="hidden" name="assessmentID" value="<?php echo $aid; ?>">
+                      <input type="hidden" name="isVisible" value="<?php echo $nextVisibility; ?>">
+
+                      <button class="btn <?php echo $visibilityButtonClass; ?>" type="submit">
+                        <?php echo htmlspecialchars($visibilityButtonText); ?>
+                      </button>
+                    </form>
+
+                    <form
+                      method="POST"
+                      action=""
+                      style="margin:0;"
+                      onsubmit="return confirm('Delete this quiz and all related data?');">
+
                       <input type="hidden" name="action" value="delete_quiz">
                       <input type="hidden" name="assessmentID" value="<?php echo $aid; ?>">
+
                       <button class="btn btnDanger" type="submit">Delete</button>
                     </form>
                   </div>

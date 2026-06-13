@@ -17,26 +17,36 @@ $userID = (int)($_SESSION['userID'] ?? 0);
 $fullName = $_SESSION['full_name'] ?? 'Student';
 $courseID = isset($_GET['courseID']) ? (int)$_GET['courseID'] : 0;
 
+// Check whether the student is enrolled in this course
 $access = $conn->prepare("SELECT 1 FROM enrollment WHERE userID = ? AND courseID = ? LIMIT 1");
 $access->bind_param("ii", $userID, $courseID);
 $access->execute();
 $ok = $access->get_result()->fetch_assoc();
 $access->close();
+
 if (!$ok) {
   header("Location: student_courses.php");
   exit;
 }
 
+// Get course name
 $cstmt = $conn->prepare("SELECT courseName FROM course WHERE courseID = ? LIMIT 1");
 $cstmt->bind_param("i", $courseID);
 $cstmt->execute();
 $course = $cstmt->get_result()->fetch_assoc();
 $cstmt->close();
 
+/*
+  UPDATED QUERY:
+  Added AND isVisible = 1
+  This ensures students only see quizzes that lecturers set as visible.
+*/
 $stmt = $conn->prepare("
   SELECT assessmentID, tittle, dueDate, openAt, closeAt, durationMinutes
   FROM assessment
-  WHERE courseID = ? AND type = 'Quiz'
+  WHERE courseID = ? 
+    AND type = 'Quiz'
+    AND isVisible = 1
   ORDER BY dueDate ASC, assessmentID ASC
 ");
 $stmt->bind_param("i", $courseID);
@@ -46,12 +56,15 @@ $stmt->close();
 
 $msg = $_GET['msg'] ?? '';
 $alert = '';
+
 if ($msg === 'not_open') {
   $alert = 'Quiz is not open yet.';
 }
+
 if ($msg === 'closed') {
   $alert = 'Quiz is already closed.';
 }
+
 if ($msg === 'duration_missing') {
   $alert = 'Quiz duration is not set.';
 }
@@ -62,6 +75,7 @@ function fmt_dt($dt)
   return date('Y-m-d H:i', strtotime($dt));
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 
@@ -70,8 +84,10 @@ function fmt_dt($dt)
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+
   <title>EduTrack Quiz List</title>
   <link rel="stylesheet" href="style.css">
+
   <style>
     .table-wrap {
       padding: 18px 26px;
@@ -140,26 +156,37 @@ function fmt_dt($dt)
         <span>Smart Tracking for Smarter Learning</span>
       </div>
     </div>
+
     <div class="user-info">
       <?php if (!empty($user['profile_picture']) && file_exists($user['profile_picture'])): ?>
         <img src="<?php echo htmlspecialchars($user['profile_picture']); ?>" class="profile-icon" alt="Profile">
       <?php else: ?>
         <img src="assets/profile.png" class="profile-icon" alt="Profile">
       <?php endif; ?>
-      <span class="user-name"><?php echo htmlspecialchars($user['full_name']); ?></span>
+
+      <span class="user-name">
+        <?php echo htmlspecialchars($user['full_name']); ?>
+      </span>
     </div>
   </div>
 
   <div class="content-wrapper">
     <div class="sidebar student-theme">
       <ul>
-        <li><a href="student_courses.php" style="font-weight:700;text-decoration:underline;">My Courses</a></li>
+        <li>
+          <a href="student_courses.php" style="font-weight:700;text-decoration:underline;">
+            My Courses
+          </a>
+        </li>
         <li><a href="student_progress.php">My Progress</a></li>
         <li><a href="student_myfeedback.php">My Feedback</a></li>
         <li><a href="lectevaluationlist.php">Evaluation</a></li>
         <li><a href="profile.php">My Profile</a></li>
       </ul>
-      <button class="logout-btn" onclick="window.location.href='logout.php'">Log Out</button>
+
+      <button class="logout-btn" onclick="window.location.href='logout.php'">
+        Log Out
+      </button>
     </div>
 
     <div class="main-content">
@@ -169,9 +196,14 @@ function fmt_dt($dt)
 
       <div class="table-wrap">
         <h2 style="margin:0;">Quiz</h2>
-        <div class="muted"><?php echo htmlspecialchars($course['courseName'] ?? ''); ?></div>
+        <div class="muted">
+          <?php echo htmlspecialchars($course['courseName'] ?? ''); ?>
+        </div>
+
         <?php if ($alert): ?>
-          <div class="alert"><?php echo htmlspecialchars($alert); ?></div>
+          <div class="alert">
+            <?php echo htmlspecialchars($alert); ?>
+          </div>
         <?php endif; ?>
       </div>
 
@@ -188,10 +220,13 @@ function fmt_dt($dt)
               <th>Action</th>
             </tr>
           </thead>
+
           <tbody>
             <?php if (empty($quizzes)): ?>
               <tr>
-                <td colspan="7" class="muted">No quiz created yet.</td>
+                <td colspan="7" class="muted">
+                  No quiz available yet.
+                </td>
               </tr>
             <?php else: ?>
               <?php foreach ($quizzes as $q): ?>
@@ -205,6 +240,7 @@ function fmt_dt($dt)
                   ORDER BY attemptID DESC
                   LIMIT 1
                 ";
+
                 $astmt = $conn->prepare($attemptSql);
                 $astmt->bind_param("ii", $aid, $userID);
                 $astmt->execute();
@@ -215,7 +251,7 @@ function fmt_dt($dt)
                 $score = $attempt['totalScore'] ?? '';
 
                 $now = time();
-                $openTs  = $q['openAt']  ? strtotime($q['openAt'])  : 0;
+                $openTs  = $q['openAt'] ? strtotime($q['openAt']) : 0;
                 $closeTs = $q['closeAt'] ? strtotime($q['closeAt']) : 0;
                 $durMin  = isset($q['durationMinutes']) ? (int)$q['durationMinutes'] : 0;
 
@@ -229,41 +265,57 @@ function fmt_dt($dt)
                 if ($openTs > 0 && $now < $openTs) {
                   $canStart = false;
                   $lockLabel = 'Not Open';
-                } else if ($closeTs > 0 && $now > $closeTs) {
+                } elseif ($closeTs > 0 && $now > $closeTs) {
                   $canStart = false;
                   $lockLabel = 'Closed';
-                } else if ($durMin <= 0) {
+                } elseif ($durMin <= 0) {
                   $canStart = false;
                   $lockLabel = 'No Duration';
                 }
                 ?>
+
                 <tr>
                   <td><?php echo htmlspecialchars($q['tittle']); ?></td>
                   <td><?php echo htmlspecialchars($openText); ?></td>
                   <td><?php echo htmlspecialchars($closeText); ?></td>
                   <td><?php echo htmlspecialchars($durText); ?></td>
-                  <td><span class="badge"><?php echo htmlspecialchars($status); ?></span></td>
-                  <td><?php echo $score !== '' ? htmlspecialchars($score) : '-'; ?></td>
+
+                  <td>
+                    <span class="badge">
+                      <?php echo htmlspecialchars($status); ?>
+                    </span>
+                  </td>
+
+                  <td>
+                    <?php echo $score !== '' ? htmlspecialchars($score) : '-'; ?>
+                  </td>
+
                   <td>
                     <?php if ($status === 'submitted' || $status === 'graded'): ?>
                       <a class="btn" href="student_quiz_review.php?assessmentID=<?php echo $aid; ?>&courseID=<?php echo (int)$courseID; ?>">
                         View Answers
                       </a>
+
                     <?php elseif ($status === 'in_progress'): ?>
                       <?php if ($canStart): ?>
                         <a class="btn" href="student_quiz_take.php?assessmentID=<?php echo $aid; ?>&courseID=<?php echo (int)$courseID; ?>">
                           Continue
                         </a>
                       <?php else: ?>
-                        <span class="btn btnDisabled"><?php echo htmlspecialchars($lockLabel); ?></span>
+                        <span class="btn btnDisabled">
+                          <?php echo htmlspecialchars($lockLabel); ?>
+                        </span>
                       <?php endif; ?>
+
                     <?php else: ?>
                       <?php if ($canStart): ?>
                         <a class="btn" href="student_quiz_take.php?assessmentID=<?php echo $aid; ?>&courseID=<?php echo (int)$courseID; ?>">
                           Open
                         </a>
                       <?php else: ?>
-                        <span class="btn btnDisabled"><?php echo htmlspecialchars($lockLabel); ?></span>
+                        <span class="btn btnDisabled">
+                          <?php echo htmlspecialchars($lockLabel); ?>
+                        </span>
                       <?php endif; ?>
                     <?php endif; ?>
                   </td>
@@ -274,7 +326,9 @@ function fmt_dt($dt)
         </table>
 
         <div style="margin-top:16px;">
-          <a class="btn" href="student_subject.php?courseID=<?php echo (int)$courseID; ?>">Back</a>
+          <a class="btn" href="student_subject.php?courseID=<?php echo (int)$courseID; ?>">
+            Back
+          </a>
         </div>
       </div>
     </div>
