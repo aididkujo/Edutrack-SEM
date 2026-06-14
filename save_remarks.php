@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $del->bind_param("ii", $sID, $cID);
     $del->execute();
 
-    // 2. Insert new remark
+    // 2. Insert new remark for this student/course
     $stmt = $conn->prepare("INSERT INTO student_remarks (courseID, studentID, lecturerID, remark) VALUES (?, ?, ?, ?)");
     $stmt->bind_param("iiis", $cID, $sID, $lID, $remark);
     
