@@ -226,44 +226,45 @@ $stmt->close();
 
         <table class="table">
           <thead>
-            <tr>
-              <th style="width:60px;">No</th>
-              <th>Student Name</th>
-              <th>Course</th>
-              <th style="width:140px;">Status</th>
-              <th style="width:160px;">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php if (count($list) === 0): ?>
-              <tr><td colspan="5">No students found for your courses.</td></tr>
-            <?php else: ?>
-              <?php $no = 1; ?>
-              <?php foreach ($list as $row): ?>
-                <tr>
-                  <td><?php echo $no++; ?></td>
-                  <td><?php echo htmlspecialchars($row['studentName']); ?></td>
-                  <td><?php echo htmlspecialchars($row['courseName']); ?></td>
-                  <td>
-                    <?php if (!empty($row['evaluationID'])): ?>
-                      <span class="status-pill status-completed">Completed</span>
-                    <?php else: ?>
-                      <span class="status-pill status-pending">Pending</span>
-                    <?php endif; ?>
-                  </td>
-                  <td>
-                    <?php if (!empty($row['evaluationID'])): ?>
-                      <a class="btn-view" href="lecturer_myfeedback.php?evaluationID=<?php echo (int)$row['evaluationID']; ?>">
-                        View Feedback
-                      </a>
-                    <?php else: ?>
-                      <span style="color:#777;">—</span>
-                    <?php endif; ?>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-            <?php endif; ?>
-          </tbody>
+          <tr>
+            <th style="width:60px;">No</th>
+            <th>Submission ID</th>
+            <th>Course</th>
+            <th style="width:140px;">Status</th>
+            <th style="width:160px;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php if (count($list) === 0): ?>
+            <tr><td colspan="5">No submissions found for your courses.</td></tr>
+          <?php else: ?>
+            <?php $counter = 1; ?>
+            <?php foreach ($list as $row): ?>
+              <tr>
+                <td><?php echo $counter; ?></td>
+                <td><?php echo "Feedback #" . $counter; ?></td>
+                <td><?php echo htmlspecialchars($row['courseName']); ?></td>
+                <td>
+                  <?php if (!empty($row['evaluationID'])): ?>
+                    <span class="status-pill status-completed">Completed</span>
+                  <?php else: ?>
+                    <span class="status-pill status-pending">Pending</span>
+                  <?php endif; ?>
+                </td>
+                <td>
+                  <?php if (!empty($row['evaluationID'])): ?>
+                    <a class="btn-view" href="lecturer_myfeedback.php?evaluationID=<?php echo (int)$row['evaluationID']; ?>">
+                      View Feedback
+                    </a>
+                  <?php else: ?>
+                    <span style="color:#777;">—</span>
+                  <?php endif; ?>
+                </td>
+              </tr>
+              <?php $counter++; ?>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </tbody>
         </table>
 
         <?php if ($viewEvaluationID > 0): ?>
@@ -272,11 +273,11 @@ $stmt->close();
               <div class="meta" style="color:#b00020;">Feedback not found (or not yours).</div>
             <?php else: ?>
               <div class="meta">
-                <strong>Student:</strong> <?php echo htmlspecialchars($evaluation['studentName']); ?>
+                <strong>Feedback Identifier:</strong> Anonymous Entry
                 &nbsp; | &nbsp;
                 <strong>Course:</strong> <?php echo htmlspecialchars($evaluation['courseName']); ?>
                 &nbsp; | &nbsp;
-                <strong>Submitted:</strong> <?php echo htmlspecialchars($evaluation['createdAt']); ?>
+                <strong>Submitted Date:</strong> <?php echo htmlspecialchars($evaluation['createdAt']); ?>
               </div>
 
               <?php for ($i=1; $i<=5; $i++): ?>
